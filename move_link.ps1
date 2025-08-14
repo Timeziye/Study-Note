@@ -16,23 +16,11 @@ param (
     [string[]]$Paths
 )
 
-# 统计变量
-$totalFiles = 0
-$processedFiles = 0
-$modifiedFiles = 0
-$skippedFiles = 0
-
-Write-Host "HTML Link标签移动工具" -ForegroundColor Green
-Write-Host "=====================" -ForegroundColor Green
-Write-Host ""
-
 # 如果没传参数，则默认处理当前目录下的 *.html
 if (-not $Paths) {
     $Paths = Get-ChildItem -Path . -Filter *.html | ForEach-Object { $_.FullName }
 }
 
-# 收集所有需要处理的文件
-$allFiles = @()
 foreach ($path in $Paths) {
     if (Test-Path $path) {
         # 如果是文件夹，则递归找 html 文件
@@ -41,72 +29,28 @@ foreach ($path in $Paths) {
         } else {
             $files = @($path)
         }
-        $allFiles += $files
-    }
-}
 
-if ($allFiles.Count -eq 0) {
-    Write-Host "没有找到HTML文件！" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "请确保："
-    Write-Host "  1. 当前目录或指定路径中存在 .html 文件"
-    Write-Host "  2. 文件路径正确"
-    Write-Host ""
-    exit
-}
+        foreach ($file in $files) {
+            Write-Host "Processing $file ..."
+            $content = Get-Content $file -Raw
 
-Write-Host "找到 $($allFiles.Count) 个HTML文件：" -ForegroundColor Yellow
-foreach ($file in $allFiles) {
-    Write-Host "  - $([System.IO.Path]::GetFileName($file))" -ForegroundColor Cyan
-}
-Write-Host ""
+            if ($content -match "(<link\s+href='https://madmaxchow\.github\.io/openfonts/css/vlook-[^>]+>)") {
+                $link = $matches[1]
 
-foreach ($file in $allFiles) {
-    $totalFiles++
-    $fileName = [System.IO.Path]::GetFileName($file)
-    Write-Host "处理中: $fileName" -ForegroundColor Yellow
-    
-    try {
-        $content = Get-Content $file -Raw -Encoding UTF8
-        $originalContent = $content
+                # 只有当 </style> 后没有该 link 时才处理
+                if ($content -notmatch "</style>\s*$([regex]::Escape($link))") {
+                    # 删除原位置
+                    $content = $content -replace [regex]::Escape($link), ""
 
-        if ($content -match "(<link\s+href='https://madmaxchow\.github\.io/openfonts/css/vlook-[^>]+>)") {
-            $link = $matches[1]
-
-            # 只有当 </style> 后没有该 link 时才处理
-            if ($content -notmatch "</style>\s*$([regex]::Escape($link))") {
-                # 删除原位置
-                $content = $content -replace [regex]::Escape($link), ""
-
-                # 插入到 </style> 后
-                $content = $content -replace "(</style>)", "`$1`r`n$link"
-
-                # 写回文件
-                Set-Content $file $content -Encoding UTF8
-                
-                Write-Host "  成功: $fileName - 已移动link标签" -ForegroundColor Green
-                $modifiedFiles++
-            } else {
-                Write-Host "  跳过: $fileName - link标签已在正确位置" -ForegroundColor Gray
-                $skippedFiles++
+                    # 插入到 </style> 后
+                    $content = $content -replace "(</style>)", "`$1`r`n$link"
+                }
             }
-        } else {
-            Write-Host "  跳过: $fileName - 未找到目标link标签" -ForegroundColor Gray
-            $skippedFiles++
+
+            # 写回文件
+            Set-Content $file $content -Encoding UTF8
         }
-        
-        $processedFiles++
-    } catch {
-        Write-Host "  错误: $fileName - $($_.Exception.Message)" -ForegroundColor Red
     }
-    
-    Write-Host ""
 }
 
-Write-Host "======================================" -ForegroundColor Green
-Write-Host "处理完成！" -ForegroundColor Green
-Write-Host "总文件数: $totalFiles" -ForegroundColor Cyan
-Write-Host "成功处理: $processedFiles" -ForegroundColor Cyan
-Write-Host "已修改: $modifiedFiles" -ForegroundColor Green
-Write-Host "已跳过: $skippedFiles" -ForegroundColor Gray
-Write-Host "======================================" -ForegroundColor Green 
+Write-Host "Done."
